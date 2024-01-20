@@ -1,6 +1,10 @@
 import os
 import rhinoscriptsyntax as rs
 import time
+def delete_unsupported_objects(imported_geometry):
+    for geometry in imported_geometry:
+        if not is_geometry_supported_for_unroll(geometry):
+            rs.DeleteObject(geometry)
 
 def is_geometry_supported_for_unroll(geometry):
     # 检查几何体是否支持展开
@@ -8,36 +12,37 @@ def is_geometry_supported_for_unroll(geometry):
 
 def flatten_and_save(geometry, save_folder, model_name, index):
     if not is_geometry_supported_for_unroll(geometry):
-        rs.DeleteObjects([geometry])
         print("模型 {} - {} 不支持展开。".format(model_name, index))
-        return None, None
+        return None
     
-    # 创建展开图
+    # 展开几何体
     flattened = rs.UnrollSurface(geometry)
     if flattened:
         unrolled_surfaces = rs.LastCreatedObjects()
-        
         if unrolled_surfaces:
-            # 停顿2秒
-            rs.DeleteObjects([geometry])
-            # 构造展开图的文件名
-            step_file_name = "{}_{}.step".format(model_name, index)
-            image_file_name = "{}_{}.png".format(model_name, index)
+            # 切换到顶视图
+            rs.Command("_-SetView _World _Top", False)
+            time.sleep(1)  # 等待视图切换
             
-            # 保存展开图为STEP文件
-            step_file_path = os.path.join(save_folder, step_file_name)
-            rs.Command("_-Export \"" + step_file_path + "\" _Enter", False)
+            # Zoom Extents All，以确保展开图在视图中居中且完整显示
+            rs.Command("_-Zoom _All _Extents", False)
+            time.sleep(1)  # 等待视图更新
+            # 删除展开的对象
+            rs.DeleteObjects(unrolled_surfaces)
+            # 构造图片文件名
+            image_file_name = "{}_topview.png".format(model_name)
             
-            # 保存展开图为图片（PNG格式）
+            # 保存图片
             image_file_path = os.path.join(save_folder, image_file_name)
-            rs.Command("_-ViewCaptureToFile \"" + image_file_path + "\" _Enter", False)
-            time.sleep(1)
+            rs.Command("_-ViewCaptureToFile \"" + image_file_path + "\" _Width 800 _Height 600 _Enter", False)
+            time.sleep(1)  # 等待图片保存完成
             
-            # 删除原模型
-            rs.DeleteObjects(rs.AllObjects())
-            return step_file_path, image_file_path
+
+            
+            return image_file_path
     
-    return None, None
+    return None
+
 
 def import_and_unroll_models(folder_path, save_folder):
     # 获取文件夹中的所有 STEP 文件
@@ -53,27 +58,29 @@ def import_and_unroll_models(folder_path, save_folder):
         imported_geometry = rs.LastCreatedObjects()
         
         if imported_geometry:
+            delete_unsupported_objects(imported_geometry)
             index = 1
-            
-            while True:
+            for geometry in imported_geometry:
                 # 展开导入的模型并保存展开图
-                step_file_path, image_file_path = flatten_and_save(imported_geometry[0], save_folder, model_name, index)
-                
-                if step_file_path and image_file_path:
-                    print("成功导入、展开并保存模型：{} - {}".format(model_name, index))
-                    print("STEP文件保存为：{}".format(step_file_path))
-                    print("图片保存为：{}".format(image_file_path))
-                    
+                image_file_path = flatten_and_save(geometry, save_folder, model_name, index)
+                rs.DeleteObjects(imported_geometry)
+                if image_file_path:
+                    print("成功导入、展开并保存模型的展开图：{} - {}".format(model_name, index))
+                    print("展开图图片保存为：{}".format(image_file_path))
                     index += 1
                 else:
                     print("无法展开模型：{} - {}".format(model_name, index))
                     break
+            
+
+            time.sleep(1)
         else:
             print("无法导入模型：{}".format(step_file))
-        time.sleep(1)
+        
+        # 清除屏幕上所有残余对象
         rs.DeleteObjects(rs.AllObjects())
+        time.sleep(1)
 
-            
 def main():
     # 指定模型文件夹路径
     folder_path = "C:/Users/frank/Documents/GitHub/Unfold3D/test"
@@ -85,7 +92,7 @@ def main():
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)
 
-    # 导入、展开、保存和删除原始模型
+    # 导入、展开、保存展开图并删除原始模型
     import_and_unroll_models(folder_path, save_folder)
 
 if __name__ == "__main__":
